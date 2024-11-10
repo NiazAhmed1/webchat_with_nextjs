@@ -1,27 +1,42 @@
+import { ragChat } from "../lib/rag-chat";
+import { redis } from "../lib/redis";
+import { useRouter } from 'next/router';
 
-import { ragChat } from "../lib/rag-chat"
+interface PageProps {
+    params: {
+        url?: string | string[];
+    };
+}
 
-interface PageProps{
-    params:{
-        url:string | string[] | undefined
+function reconstructUrl({ url }: { url: string[] }) {
+    const decodedComponents = url.map((component) => decodeURIComponent(component));
+    return decodedComponents.join("//");
+}
+
+const Page = async ({ params }: PageProps) => {
+    // Check if params and params.url are defined
+    if (!params || !params.url) {
+        return <p>Error: No URL provided</p>;
     }
-}
 
-function reconstructUrl({url}:{url:string[]}){
-    const decodedComponents=url.map((component) => decodeURIComponent(component))
-    return decodedComponents.join("/")
-}
+    // Ensure `url` is an array; if it’s a single string, convert it to an array with one element
+    const urlArray = Array.isArray(params.url) ? params.url : [params.url];
+    const reconstructedUrl = reconstructUrl({ url: urlArray });
+    
+    // Check if the URL has been indexed in Redis
+    const isAlreadyIndexed = await redis.sismember("indexed-urls", reconstructedUrl);
+    
+    if (!isAlreadyIndexed) {
+        await ragChat.context.add({
+            type: "html",
+            source: reconstructedUrl,
+            config: { chunkOverlap: 50, chunkSize: 200 }
+        });
 
-const Page =async ( {params}:PageProps)=>{
-    const reconstructedUrl=reconstructUrl({url :params.url as string[]})
-    console.log(params)
-    await ragChat.context.add({
-        type:"html",
-        source: reconstructedUrl,
-        config:{chunkOverlap:50,chunkSize:200}
-    })
+        await redis.sadd("indexed-urls", reconstructedUrl);
+    }
 
-    return <p>hello </p>
-}
+    return <p>hello</p>;
+};
 
-export default Page
+export default Page;
